@@ -35,6 +35,7 @@
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
 #include <linux/nct1008.h>
+#include <linux/isl29023.h>
 #include <mach/fb.h>
 #include <mach/gpio.h>
 #ifdef CONFIG_VIDEO_MT9D115
@@ -703,10 +704,18 @@ static int chagall_iqs128_init(void)
        return 0;
 }
 
+static struct isl29023_platform_data chagall_isl29023_data = {
+	.vdd_reg       = "vdd_3v3_sensor",
+	.rext          = 100,
+	.polled        = 1,   // use automatic polling instead of IRQ
+	.poll_interval = 300, // milliseconds
+};
 
 static struct i2c_board_info chagall_i2c2_isl_board_info[] = {
 	{
 		I2C_BOARD_INFO("isl29023", 0x44),
+		.platform_data = &chagall_isl29023_data,
+		.irq           = -1,
 	}
 };
 
