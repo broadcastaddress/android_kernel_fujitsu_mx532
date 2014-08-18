@@ -338,6 +338,33 @@ static int isl29023_get_power_state(struct i2c_client *client)
 
 //-----------------------------------------------------------------------------
 
+static void isl29023_update_dynamic_range(struct i2c_client *client, int luxvalue)
+{
+	// gain_range
+	int k, kmax = ARRAY_SIZE(gain_range) - 1;
+	int new_range;
+
+	luxvalue += luxvalue/5;
+	if (luxvalue > gain_range[kmax]) {
+		k = kmax;
+  } else {
+		for (k = 0; k <= kmax; ++k) {
+			if (luxvalue <= gain_range[k])
+				break;
+		}
+		if (k >= kmax)
+			k = kmax;
+	}
+	new_range = k;
+	
+	dev_err(&client->dev, "Updating range to %d because mesurement was %d\n", gain_range[k], luxvalue);
+	
+	if( isl29023_get_range( client ) != new_range )
+		isl29023_set_range( client, new_range );
+}
+
+//-----------------------------------------------------------------------------
+
 static int isl29023_convert_lux( struct i2c_client *client, int adcval )
 {
 	int bitdepth, range, luxval;
@@ -409,6 +436,9 @@ static int isl29023_get_lux_value(struct i2c_client *client)
 	// Convert to lux unit
 	luxval = isl29023_convert_lux( client, adcval );
 	
+	// Set considerable range dynamically	
+	isl29023_update_dynamic_range( client, luxval );
+	
 	// Return to previous mode
 	if( mode == ISL29023_IR_CONT_MODE || mode == ISL29023_PD_MODE )
 		isl29023_set_mode( client, mode );
@@ -439,6 +469,9 @@ static int isl29023_get_ir_value(struct i2c_client *client)
 	
 	// Convert to lux unit
 	luxval = isl29023_convert_lux( client, adcval );
+	
+	// Set considerable range dynamically	
+	isl29023_update_dynamic_range( client, luxval );
 	
 	// Return to previous mode
 	if( mode == ISL29023_ALS_CONT_MODE || mode == ISL29023_PD_MODE )
