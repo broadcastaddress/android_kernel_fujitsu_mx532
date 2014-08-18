@@ -321,12 +321,37 @@ static int isl29023_get_power_state(struct i2c_client *client)
 		return 0;
 }
 
+//-----------------------------------------------------------------------------
+
+static int isl29023_convert_lux( struct i2c_client *client, int adcval )
+{
+	int bitdepth, range, luxval;
+	struct isl29023_data *data = i2c_get_clientdata(client);
+	
+	if( adcval < 0 ) return adcval;
+	
+	// Bit resolution
+	bitdepth = (4 - isl29023_get_resolution(client)) * 4;
+	
+	// Range
+	range    = isl29023_get_range(client);
+	
+	// Convert to lux unit
+	// 499 is the nominal external resistor value in kOhms (see datasheet)	
+	luxval = ( adcval * ( (gain_range[range] * 499)/(data->rext) ) ) >> bitdepth;
+	
+	return luxval;
+}
+
+//-----------------------------------------------------------------------------
+
 static int isl29023_get_adc_value(struct i2c_client *client)
 {
 	struct isl29023_data *data = i2c_get_clientdata(client);
-	int lsb, msb, range, bitdepth;
+	int lsb, msb, adcval, mode;
 
 	mutex_lock(&data->lock);
+	
 	lsb = i2c_smbus_read_byte_data(client, ISL29023_REG_LSB_SENSOR);
 
 	if (lsb < 0) {
@@ -339,17 +364,80 @@ static int isl29023_get_adc_value(struct i2c_client *client)
 
 	if (msb < 0)
 		return msb;
-
-	range = isl29023_get_range(client);
-	bitdepth = (4 - isl29023_get_resolution(client)) * 4;
-	return (((msb << 8) | lsb) * ((gain_range[range] * 499) / data->rext))
-		>> bitdepth;
+	
+	adcval = ((msb << 8 ) | lsb);
+		
+	return adcval;
 }
+
+//-----------------------------------------------------------------------------
+
+static int isl29023_get_lux_value(struct i2c_client *client)
+{
+	int adcval, luxval;
+	int mode;
+	
+	// Check if we are in the correct mode
+	mode = isl29023_get_mode( client );
+	if( mode != ISL29023_ALS_CONT_MODE )
+	{
+		if( isl29023_set_mode( client, ISL29023_ALS_ONCE_MODE ) < 0 )
+			return -EBUSY;
+			
+		// Wait for measurement
+		msleep(100);
+	}
+	
+	// Read ADC
+	adcval = isl29023_get_adc_value( client );
+	
+	// Convert to lux unit
+	luxval = isl29023_convert_lux( client, adcval );
+	
+	// Return to previous mode
+	if( mode == ISL29023_IR_CONT_MODE || mode == ISL29023_PD_MODE )
+		isl29023_set_mode( client, mode );
+	
+	return luxval;
+}
+
+//-----------------------------------------------------------------------------
+
+static int isl29023_get_ir_value(struct i2c_client *client)
+{
+	int adcval, luxval;
+	int mode;
+	
+	// Check if we are in the correct mode
+	mode = isl29023_get_mode( client );
+	if( mode != ISL29023_IR_CONT_MODE )
+	{
+		if( isl29023_set_mode( client, ISL29023_IR_ONCE_MODE ) < 0 )
+			return -EBUSY;
+			
+		// Wait for measurement
+		msleep(100);
+	}
+	
+	// Read ADC
+	adcval = isl29023_get_adc_value( client );
+	
+	// Convert to lux unit
+	luxval = isl29023_convert_lux( client, adcval );
+	
+	// Return to previous mode
+	if( mode == ISL29023_ALS_CONT_MODE || mode == ISL29023_PD_MODE )
+		isl29023_set_mode( client, mode );
+	
+	return luxval;
+}
+
+//-----------------------------------------------------------------------------
 
 static int isl29023_get_int_lt_value(struct i2c_client *client)
 {
 	struct isl29023_data *data = i2c_get_clientdata(client);
-	int lsb, msb, range, bitdepth;
+	int lsb, msb, adcval;
 
 	mutex_lock(&data->lock);
 	lsb = i2c_smbus_read_byte_data(client, ISL29023_REG_IRQ_TH_LO_LSB);
@@ -364,17 +452,16 @@ static int isl29023_get_int_lt_value(struct i2c_client *client)
 
 	if (msb < 0)
 		return msb;
-
-	range = isl29023_get_range(client);
-	bitdepth = (4 - isl29023_get_resolution(client)) * 4;
-	return (((msb << 8) | lsb) * ((gain_range[range] * 499) / data->rext))
-		>> bitdepth;
+		
+	adcval = ((msb << 8 ) | lsb);
+		
+	return isl29023_convert_lux( client, adcval );
 }
 
 static int isl29023_get_int_ht_value(struct i2c_client *client)
 {
 	struct isl29023_data *data = i2c_get_clientdata(client);
-	int lsb, msb, range, bitdepth;
+	int lsb, msb, adcval;
 
 	mutex_lock(&data->lock);
 	lsb = i2c_smbus_read_byte_data(client, ISL29023_REG_IRQ_TH_HI_LSB);
@@ -390,10 +477,9 @@ static int isl29023_get_int_ht_value(struct i2c_client *client)
 	if (msb < 0)
 		return msb;
 
-	range = isl29023_get_range(client);
-	bitdepth = (4 - isl29023_get_resolution(client)) * 4;
-	return (((msb << 8) | lsb) * ((gain_range[range] * 499) / data->rext))
-		>> bitdepth;
+  adcval = ((msb << 8 ) | lsb);
+
+	return isl29023_convert_lux( client, adcval );
 }
 
 /*
@@ -733,12 +819,33 @@ static ssize_t isl29023_show_lux(struct device *dev,
 
 	/* No LUX data if not operational */
 	if (!isl29023_get_power_state(client))
+	{
+		dev_err( dev, "Device is powered down.\n" );
 		return -EBUSY;
+	}
 
-	return sprintf(buf, "%d\n", isl29023_get_adc_value(client));
+	return sprintf(buf, "%d\n", isl29023_get_lux_value(client));
 }
 
 static DEVICE_ATTR(lux, S_IRUGO, isl29023_show_lux, NULL);
+
+/* ir */
+static ssize_t isl29023_show_ir(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+
+	/* No IR data if not operational */
+	if (!isl29023_get_power_state(client))
+	{
+		dev_err( dev, "Device is powered down.\n" );
+		return -EBUSY;
+	}
+
+	return sprintf(buf, "%d\n", isl29023_get_ir_value(client));
+}
+
+static DEVICE_ATTR(ir, S_IRUGO, isl29023_show_ir, NULL);
 
 /* lux interrupt low threshold */
 static ssize_t isl29023_show_int_lt_lux(struct device *dev,
@@ -885,6 +992,7 @@ static struct attribute *isl29023_attributes[] = {
 	&dev_attr_mode.attr,
 	&dev_attr_mode_available.attr,
 	&dev_attr_power_state.attr,
+	&dev_attr_ir.attr,
 	&dev_attr_lux.attr,
 	&dev_attr_int_lt_lux.attr,
 	&dev_attr_int_ht_lux.attr,
@@ -948,7 +1056,7 @@ static void isl29023_work(struct work_struct *work)
 		data->mode_before_interrupt = isl29023_get_mode(client);
 	}
 
-	lux = isl29023_get_adc_value(client);
+	lux = isl29023_get_lux_value(client);
 
 	if (!data->polled) {
 	/* To clear the interrpt status */
