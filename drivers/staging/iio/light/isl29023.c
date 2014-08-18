@@ -357,8 +357,6 @@ static void isl29023_update_dynamic_range(struct i2c_client *client, int luxvalu
 	}
 	new_range = k;
 	
-	dev_err(&client->dev, "Updating range to %d because mesurement was %d\n", gain_range[k], luxvalue);
-	
 	if( isl29023_get_range( client ) != new_range )
 		isl29023_set_range( client, new_range );
 }
@@ -745,7 +743,7 @@ static ssize_t isl29023_store_resolution(struct device *dev,
 		return -EINVAL;
 		
 	// Check if given value is allowed
-	for( i = 0; i < ARRAY_SIZE( adc_resolution ) - 1; i++ ) {
+	for( i = 0; i < ARRAY_SIZE( adc_resolution ); i++ ) {
 		if( adc_resolution[i] == val ) {
 				k = i;	
 				break;
