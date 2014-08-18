@@ -77,6 +77,10 @@ static int gain_range[] = {
 	1000, 4000, 16000, 64000
 };
 
+static int adc_resolution[] = {
+	16, 12, 8, 4
+};
+
 /*
  * register access helpers
  */
@@ -520,7 +524,11 @@ static ssize_t isl29023_show_range(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	return sprintf(buf, "%i\n", isl29023_get_range(client));
+	int k_gain = isl29023_get_range(client);
+	
+	if( k_gain < 0 || k_gain > ARRAY_SIZE(gain_range)-1 ) return -EAGAIN;
+	
+	return sprintf(buf, "%d\n", gain_range[k_gain]);
 }
 
 static ssize_t isl29023_store_range(struct device *dev,
@@ -529,20 +537,51 @@ static ssize_t isl29023_store_range(struct device *dev,
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	unsigned long val;
-	int ret;
+	int ret, i, k = -1;
 
-	if ((strict_strtoul(buf, 10, &val) < 0) || (val > ISL29023_RANGE_64K))
+	if( strict_strtoul(buf, 10, &val) < 0 )
 		return -EINVAL;
+		
+	// Check if given value is allowed
+	for( i = 0; i < ARRAY_SIZE( gain_range ); i++ ) {
+		if( gain_range[i] == val ) {
+				k = i;	
+				break;
+		}
+	}
+	
+	if( k < 0 )
+	{
+		dev_err( dev, "The range is not supported.\n" );
+		return -EINVAL;
+	}
 
-	ret = isl29023_set_range(client, val);
+	// Apply new range
+	ret = isl29023_set_range(client, k);
 	if (ret < 0)
+	{
+		dev_err( dev, "Error in setting range.\n" );
 		return ret;
+	}
 
 	return count;
 }
 
+//-----------------------------------------------------------------------------
+
+static ssize_t isl29023_show_range_available(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	return sprintf(buf, "1000 4000 16000 64000\n");
+}
+
+//-----------------------------------------------------------------------------
+
 static DEVICE_ATTR(range, S_IWUSR | S_IRUGO,
 		   isl29023_show_range, isl29023_store_range);
+static DEVICE_ATTR(range_available, S_IRUGO,
+       isl29023_show_range_available, NULL);
 
 
 /* resolution */
@@ -551,7 +590,11 @@ static ssize_t isl29023_show_resolution(struct device *dev,
 					char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	return sprintf(buf, "%d\n", isl29023_get_resolution(client));
+	int k_res = isl29023_get_resolution(client);
+	
+	if( k_res < 0 || k_res > ARRAY_SIZE(adc_resolution)-1 ) return -EAGAIN;
+	
+	return sprintf(buf, "%d\n", adc_resolution[k_res]);
 }
 
 static ssize_t isl29023_store_resolution(struct device *dev,
@@ -561,19 +604,52 @@ static ssize_t isl29023_store_resolution(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	unsigned long val;
 	int ret;
+	
+	int i, k = -1;
 
-	if ((strict_strtoul(buf, 10, &val) < 0) || (val > ISL29023_RES_4))
+	if( strict_strtoul(buf, 10, &val) < 0 )
 		return -EINVAL;
+		
+	// Check if given value is allowed
+	for( i = 0; i < ARRAY_SIZE( adc_resolution ) - 1; i++ ) {
+		if( adc_resolution[i] == val ) {
+				k = i;	
+				break;
+		}
+	}
+	
+	if( k < 0 )
+	{
+		dev_err( dev, "The ADC resolution is not supported.\n" );
+		return -EINVAL;
+	}
 
-	ret = isl29023_set_resolution(client, val);
+	// Apply new ADC resolution
+	ret = isl29023_set_resolution(client, k);
 	if (ret < 0)
+	{
+		dev_err( dev, "Error in setting ADC resolution.\n" );
 		return ret;
+	}
 
 	return count;
 }
 
+//-----------------------------------------------------------------------------
+
+static ssize_t isl29023_show_resolution_available(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	return sprintf(buf, "4 8 12 16\n");
+}
+
+//-----------------------------------------------------------------------------
+
 static DEVICE_ATTR(resolution, S_IWUSR | S_IRUGO,
 		   isl29023_show_resolution, isl29023_store_resolution);
+static DEVICE_ATTR(resolution_available, S_IRUGO,
+       isl29023_show_resolution_available, NULL);
 
 /* mode */
 static ssize_t isl29023_show_mode(struct device *dev,
@@ -601,9 +677,25 @@ static ssize_t isl29023_store_mode(struct device *dev,
 	return count;
 }
 
+//-----------------------------------------------------------------------------
+
+static ssize_t isl29023_show_mode_available(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	return sprintf(buf, __stringify(ISL29023_PD_MODE)       " - power down\n"
+	                    __stringify(ISL29023_ALS_ONCE_MODE) " - measure ambient light once (human spectral response)\n"
+	                    __stringify(ISL29023_IR_ONCE_MODE)  " - measure light once (IR-heavy response)\n"
+	                    __stringify(ISL29023_ALS_CONT_MODE) " - measure ambient light continuously (human spectral response)\n"
+	                    __stringify(ISL29023_IR_CONT_MODE)  " - measure light continuously (IR-heavy response)\n");
+}
+
+//-----------------------------------------------------------------------------
+
 static DEVICE_ATTR(mode, 0666,
 		   isl29023_show_mode, isl29023_store_mode);
-
+static DEVICE_ATTR(mode_available, S_IRUGO,
+		   isl29023_show_mode_available, NULL);
 
 /* power state */
 static ssize_t isl29023_show_power_state(struct device *dev,
@@ -787,8 +879,11 @@ static DEVICE_ATTR(int_ht_lux, S_IWUSR | S_IRUGO,
 static struct attribute *isl29023_attributes[] = {
 	&dev_attr_int_persists.attr,
 	&dev_attr_range.attr,
+	&dev_attr_range_available.attr,
 	&dev_attr_resolution.attr,
+	&dev_attr_resolution_available.attr,
 	&dev_attr_mode.attr,
+	&dev_attr_mode_available.attr,
 	&dev_attr_power_state.attr,
 	&dev_attr_lux.attr,
 	&dev_attr_int_lt_lux.attr,
