@@ -69,6 +69,7 @@ struct isl29023_data {
 	u8 reg_cache[ISL29023_NUM_CACHABLE_REGS];
 	u8 mode_before_suspend;
 	u8 mode_before_interrupt;
+	u8 mode_before_powerdown;
 	u16 rext;
 	u8 polled;
 	u16 poll_interval;
@@ -296,10 +297,23 @@ static int isl29023_set_power_state(struct i2c_client *client, int state)
 {
 	struct isl29023_data *data = i2c_get_clientdata(client);
 
-	int rc = __isl29023_write_reg(client, ISL29023_COMMAND1,
-			ISL29023_MODE_MASK, ISL29023_MODE_SHIFT,
-			state ?
-			ISL29023_ALS_ONCE_MODE : ISL29023_PD_MODE);
+	int rc;
+	
+	// Save mode if we go into power down mode and return to it 
+	if( !state ) 
+	{
+		// Power down and save current mode
+		data->mode_before_powerdown = isl29023_get_mode( client );
+		rc = isl29023_set_mode( client, ISL29023_PD_MODE );
+	}
+	else if( isl29023_get_mode( client ) == ISL29023_PD_MODE )
+	{
+			// Power up, restore previous mode if available
+			if( data->mode_before_powerdown != ISL29023_PD_MODE )
+				rc = isl29023_set_mode( client, data->mode_before_powerdown );
+			else
+				rc = isl29023_set_mode( client, ISL29023_DEFAULT_MODE );
+	}
 
 	if (data->polled) {
 		if (state)
@@ -1110,6 +1124,7 @@ static int __devinit isl29023_probe(struct i2c_client *client,
 	data->rext = ls_data->rext;
 	data->polled = ls_data->polled;
 	data->poll_interval = ls_data->poll_interval;
+	data->mode_before_powerdown = ISL29023_PD_MODE;
 	snprintf(data->phys, sizeof(data->phys),
 		 "%s", dev_name(&client->dev));
 	i2c_set_clientdata(client, data);
