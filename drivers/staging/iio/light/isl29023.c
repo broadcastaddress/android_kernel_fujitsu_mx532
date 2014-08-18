@@ -1153,7 +1153,7 @@ static int __devinit isl29023_probe(struct i2c_client *client,
 
 	__set_bit(EV_ABS, input_dev->evbit);
 	input_set_abs_params(input_dev, ABS_MISC, 0,
-			gain_range[DEF_RANGE]*499/data->rext, 0, 0);
+			gain_range[ARRAY_SIZE(gain_range)-1]*499/data->rext, 0, 0);
 
 	err = input_register_device(input_dev);
 	if (err)
