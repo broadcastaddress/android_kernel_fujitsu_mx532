@@ -706,7 +706,7 @@ static int chagall_iqs128_init(void)
 
 static struct isl29023_platform_data chagall_isl29023_data = {
 	.vdd_reg       = "vdd_3v3_sensor",
-	.rext          = 100,
+	.rext          = 499,	// external scaling resistor in kOhm (datasheet recommends 499kOhm)
 	.polled        = 1,   // use automatic polling instead of IRQ
 	.poll_interval = 300, // milliseconds
 };
