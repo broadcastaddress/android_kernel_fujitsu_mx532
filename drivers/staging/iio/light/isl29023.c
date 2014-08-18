@@ -55,7 +55,8 @@
 #define ISL29023_REG_IRQ_TH_HI_MSB	0x07
 
 #define ISL29023_NUM_CACHABLE_REGS	8
-#define DEF_RANGE			2
+
+#define ISL29023_DEFAULT_MODE  ISL29023_ALS_ONCE_MODE	// Default mode on startup
 
 struct isl29023_data {
 	struct i2c_client *client;
@@ -1026,10 +1027,10 @@ static int isl29023_init_client(struct i2c_client *client)
 	isl29023_set_int_ht(client, 0xffff);
 	isl29023_set_int_lt(client, 0x0);
 	isl29023_set_range(client, ISL29023_RANGE_4K);
-	isl29023_set_resolution(client, ISL29023_RES_12);
-	isl29023_set_mode(client, ISL29023_ALS_ONCE_MODE);
+	isl29023_set_resolution(client, ISL29023_RES_16);
+	isl29023_set_mode(client, ISL29023_DEFAULT_MODE);
 	isl29023_set_int_flag(client, 0);
-	isl29023_set_power_state(client, 0);
+	//isl29023_set_power_state(client, 1); // Not needed as power state equals a mode setting
 
 	return 0;
 }
